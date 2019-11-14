@@ -1,11 +1,15 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdbool.h>
 #include <string.h>
 #include <math.h>
 #include <assert.h>
 #include "image.h"
 #include "matrix.h"
 #include <time.h>
+
+// Macros
+#define Square(x) ((x)*(x))
 
 // Frees an array of descriptors.
 // descriptor *d: the array.
@@ -50,7 +54,7 @@ descriptor describe_index(image im, int i)
 
 // Marks the spot of a point in an image.
 // image im: image to mark.
-// ponit p: spot to mark in the image.
+// point p: spot to mark in the image.
 void mark_spot(image im, point p)
 {
     int x = p.x;
@@ -112,9 +116,42 @@ image smooth_image(image im, float sigma)
 //          third channel is IxIy.
 image structure_matrix(image im, float sigma)
 {
+    // Generate filters
+    image gx_filter = make_gx_filter();
+    image gy_filter = make_gy_filter();
+
+    // Convolution
+    image gx = convolve_image(im, gx_filter, 0);
+    image gy = convolve_image(im, gy_filter, 0);
+    free_image(gx_filter);
+    free_image(gy_filter);
+
+    // Calculate Naive Ix^2, Iy^2 and IxIy (before weighted sum)
     image S = make_image(im.w, im.h, 3);
-    // TODO: calculate structure matrix for im.
-    return S;
+    int i, j;
+    float Ix, Iy;
+    for (i=0; i < S.w; i++) {
+        for (j=0; j < S.h; j++) {
+            // Get Ix and Iy
+            Ix = get_pixel(gx, i, j, 0);
+            Iy = get_pixel(gy, i, j, 0);
+
+            // Set values
+            set_pixel(S, i, j, 0, Ix*Ix);
+            set_pixel(S, i, j, 1, Iy*Iy);
+            set_pixel(S, i, j, 2, Ix*Iy);
+        }
+    }
+
+    // Calculate weighted sum of these Ix^2, Iy^2, and IxIy using Gaussian blur
+    image output = smooth_image(S, sigma);
+
+    // Cleanup
+    free_image(gx);
+    free_image(gy);
+    free_image(S);
+
+    return output;
 }
 
 // Estimate the cornerness of each pixel given a structure matrix S.
@@ -122,9 +159,33 @@ image structure_matrix(image im, float sigma)
 // returns: a response map of cornerness calculations.
 image cornerness_response(image S)
 {
+    // Hyper-params
+    float alpha = 0.06;
+
+    // Make a response map of cornerness calculations for each pixel
     image R = make_image(S.w, S.h, 1);
-    // TODO: fill in R, "cornerness" for each pixel using the structure matrix.
-    // We'll use formulation det(S) - alpha * trace(S)^2, alpha = .06.
+    int i, j;
+    float Ix2, Iy2, IxIy;
+    float value;
+    for (i=0; i < R.w; i++) {
+        for (j=0; j < R.h; j++) {
+            // Get structure matrix information
+            Ix2 = get_pixel(S, i, j, 0);
+            Iy2 = get_pixel(S, i, j, 1);
+            IxIy = get_pixel(S, i, j, 2);
+
+            // Calculate our cornerness estimate value
+            // "Smallest eigen value estimate" = det(S) - alpha * trace(S)^2, alpha = .06.
+            // det(S) = a * d - b * c
+            // trace(S) = a + d
+            // for [[a b] [c d]] matrix
+            value = (Ix2 * Iy2 - Square(IxIy)) - alpha * Square(Ix2 + Iy2);
+
+            // Set the value to the output image map
+            set_pixel(R, i, j, 0, value);
+        }
+    }
+
     return R;
 }
 
@@ -134,13 +195,40 @@ image cornerness_response(image S)
 // returns: image with only local-maxima responses within w pixels.
 image nms_image(image im, int w)
 {
-    image r = copy_image(im);
-    // TODO: perform NMS on the response map.
+    // Constant
+    float low_number = -999999.0;
+
+    // Make a new image with initial values having original responses
+    image R = copy_image(im);
+    // Perform NMS on the response map.
     // for every pixel in the image:
     //     for neighbors within w:
     //         if neighbor response greater than pixel response:
     //             set response to be very low (I use -999999 [why not 0??])
-    return r;
+    int i, j, di, dj;
+    float self, neighbor;
+    bool should_break;
+    for (i=0; i < R.w; i++) {
+        for (j=0; j < R.h; j++) {
+            self = get_pixel(im, i, j, 0);
+            should_break = false;
+            // Look around neighbors
+            for (di=-w; di < w; di++) {
+                for (dj=-w; dj < w; dj++) {
+                    neighbor = get_pixel(im, i+di, j+dj, 0);
+                    // Neighbors are too rich compare to myself. I must be supressed! (Gentrification??? lol)
+                    if (neighbor > self) {
+                        set_pixel(R, i, j, 0, low_number);
+                        // Early exit
+                        should_break = true;
+                        break;
+                    }
+                }
+                if (should_break) break;
+            }
+        }
+    }
+    return R;
 }
 
 // Perform harris corner detection and extract features from the corners.
@@ -161,16 +249,38 @@ descriptor *harris_corner_detector(image im, float sigma, float thresh, int nms,
     // Run NMS on the responses
     image Rnms = nms_image(R, nms);
 
+    // Count number of responses over threshold
+    int i, j;
+    int idx;
+    float response_value;
+    int count = 0;
+    for (i=0; i < Rnms.w; i++) {
+        for (j=0; j < Rnms.h; j++) {
+            response_value = get_pixel(Rnms, i, j, 0);
+            if (response_value > thresh) {
+                count++;
+            }
+        }
+    }
 
-    //TODO: count number of responses over threshold
-    int count = 1; // change this
-
-    
+    //printf("We have %d count of corners detected!\n", count);
     *n = count; // <- set *n equal to number of corners in image.
+
+    // Fill in array *d with descriptors of corners, use describe_index.
     descriptor *d = calloc(count, sizeof(descriptor));
-    //TODO: fill in array *d with descriptors of corners, use describe_index.
+    int count2 = 0;
+    for (i=0; i < Rnms.w; i++) {
+        for (j=0; j < Rnms.h; j++) {
+            response_value = get_pixel(Rnms, i, j, 0);
+            if (response_value > thresh) {
+                //printf("Corners @ %d, %d\n", i, j);
+                idx = (im.w * j) + i;
+                d[count2++] = describe_index(im, idx);
+            }
+        }
+    }
 
-
+    // Cleanups
     free_image(S);
     free_image(R);
     free_image(Rnms);
