@@ -235,7 +235,6 @@ int model_inliers(matrix H, match *m, int n, float thresh)
     // Count number of matches that are inliers
     // i.e. distance(H*p, q) < thresh
     // Also, sort the matches m so the inliers are the first 'count' elements.
-    printf("Calculating inliers\n");
     for (i=0; i < n; i++){
         distance = point_distance(project_point(H, m[i].p), m[i].q);
         if (distance < thresh) {
@@ -252,7 +251,6 @@ int model_inliers(matrix H, match *m, int n, float thresh)
 void randomize_matches(match *m, int n)
 {
     // Fisher-Yates to shuffle the array.
-    printf("Shufflin\n");
     int i, j;
     match tmp;
     for (i=n-1; i > 0; i--) {
@@ -270,11 +268,8 @@ void randomize_matches(match *m, int n)
 // returns: matrix representing homography H that maps image a to image b.
 matrix compute_homography(match *matches, int n)
 {
-    printf("Computing homography\n");
-    printf("argument n : %d\n", n);
     matrix M = make_matrix(n*2, 8);
     matrix b = make_matrix(n*2, 1);
-    printf("After make matrix\n");
 
     int i;
     double m_x;
@@ -282,7 +277,6 @@ matrix compute_homography(match *matches, int n)
     double n_x;
     double n_y;
 
-    printf("Filling equations...");
     for(i = 0; i < n; ++i){
         // Get match point values
         m_x = matches[i].p.x;
@@ -313,21 +307,17 @@ matrix compute_homography(match *matches, int n)
         b.data[2*i][0] = n_x;
         b.data[2*i+1][0] = n_y;
     }
-    printf("Solving system...\n");
     matrix a = solve_system(M, b);
-    //printf("!!!!! Matrix a has rows: %d and cols: %d\n", a.rows, a.cols);
     free_matrix(M); free_matrix(b);
 
     // If a solution can't be found, return empty matrix;
     matrix none = {0};
     if(!a.data) {
-        printf("Solution not found! returning empty matrix!\n");
         return none;
     }
 
     matrix H = make_matrix(3, 3);
     // Fill in the homography H based on the result in a.
-    printf("Filling in the homography based on the result in a\n");
     H.data[0][0] = a.data[0][0];
     H.data[0][1] = a.data[1][0];
     H.data[0][2] = a.data[2][0];
@@ -341,7 +331,6 @@ matrix compute_homography(match *matches, int n)
     H.data[2][2] = 1;
 
     free_matrix(a);
-    printf("Returning final Homography matrix\n");
     return H;
 }
 
@@ -361,27 +350,21 @@ matrix RANSAC(match *m, int n, float thresh, int k, int cutoff)
     matrix H;
 
     // RANSAC algorithm.
-    printf("Starting RANSAC algorithm\n");
-    printf("We have %d matches\n", n);
     for (i=0; i < k; i++){
         randomize_matches(m, n);
         H = compute_homography(m, 4); // Fit model to sample
         // If solving failed, move on
         if (!H.rows) {
-            printf("Empty matrix found!\n");
             continue;
         }
         // Count the number of inliers with modeled homography
         number_of_inliers = model_inliers(H, m, n, thresh);
-        printf("We got %d inliers! \n", number_of_inliers);
         if (number_of_inliers > best) {
             H = compute_homography(m, number_of_inliers); // Fit model to all inliers
             // Update best values
             Hb = H;
             best = number_of_inliers;
             if (number_of_inliers > cutoff) {
-                printf("Returning H b/c We got %d inliers! \n", number_of_inliers);
-                printf("Cutoff was %d\n", cutoff);
                 return H;
             }
         }
@@ -439,9 +422,6 @@ image combine_images(image a, image b, matrix H)
     point p;
     image c = make_image(w, h, a.c);
 
-    printf("Pasting image a into c!\n");
-    printf("dx and dy are : %d,  %d\n", dx, dy);
-    printf("w and h are: %d, %d\n", w, h);
     // Paste image a into the new image(c) offset by dx and dy.
     for(k = 0; k < a.c; ++k){
         for(j = 0; j < a.h; ++j){
@@ -457,7 +437,6 @@ image combine_images(image a, image b, matrix H)
     // and see if their projection from a coordinates to b coordinates falls
     // inside of the bounds of image b. If so, use bilinear interpolation to
     // estimate the value of b at that projection, then fill in image c.
-    printf("Pasting image b into c!\n");
     for (k = 0; k < c.c; ++k) {
         for (j = topleft.y; j < botright.y; ++j) {
             for (i = topleft.x; i < botright.x; ++i) {

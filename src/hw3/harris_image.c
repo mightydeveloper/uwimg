@@ -263,7 +263,6 @@ descriptor *harris_corner_detector(image im, float sigma, float thresh, int nms,
         }
     }
 
-    //printf("We have %d count of corners detected!\n", count);
     *n = count; // <- set *n equal to number of corners in image.
 
     // Fill in array *d with descriptors of corners, use describe_index.
@@ -273,7 +272,6 @@ descriptor *harris_corner_detector(image im, float sigma, float thresh, int nms,
         for (j=0; j < Rnms.h; j++) {
             response_value = get_pixel(Rnms, i, j, 0);
             if (response_value > thresh) {
-                //printf("Corners @ %d, %d\n", i, j);
                 idx = (im.w * j) + i;
                 d[count2++] = describe_index(im, idx);
             }
